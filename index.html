@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlannerPro - Créateur de Plans Extérieurs</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; overflow: hidden; }
+        .app-container { display: flex; height: 100vh; background: rgba(255, 255, 255, 0.95); }
+        .left-panel { width: 280px; background: #2c3e50; color: white; overflow-y: auto; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+        .panel-header { padding: 20px; background: #34495e; border-bottom: 2px solid #1a252f; }
+        .panel-header h2 { font-size: 18px; font-weight: 600; }
+        .category { margin-bottom: 20px; }
+        .category-header { padding: 12px 20px; background: #34495e; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .category-header:hover { background: #3d566e; }
+        .category-items { padding: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .draggable-item { background: #ecf0f1; color: #2c3e50; padding: 15px 10px; border-radius: 8px; cursor: move; text-align: center; transition: all 0.3s; border: 2px solid transparent; }
+        .draggable-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-color: #3498db; }
+        .draggable-item .icon { font-size: 24px; margin-bottom: 5px; }
+        .draggable-item .label { font-size: 12px; font-weight: 500; }
+        .center-area { flex: 1; display: flex; flex-direction: column; background: #f8f9fa; }
+        .toolbar { background: white; padding: 15px 20px; display: flex; gap: 15px; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05); flex-wrap: wrap; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-secondary { background: #95a5a6; color: white; }
+        .canvas-container { flex: 1; position: relative; background: white; margin: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
+        #canvas { cursor: crosshair; display: block; }
+        .right-panel { width: 320px; background: white; box-shadow: -2px 0 10px rgba(0,0,0,0.1); overflow-y: auto; }
+        .properties-content { padding: 20px; }
+        .property-group { margin-bottom: 25px; }
+        .property-group h3 { font-size: 14px; font-weight: 600; color: #2c3e50; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .property-row { display: flex; align-items: center; margin-bottom: 12px; gap: 10px; }
+        .property-label { flex: 0 0 100px; font-size: 13px; color: #5a6c7d; font-weight: 500; }
+        .property-input { flex: 1; padding: 8px 12px; border: 2px solid #e1e8ed; border-radius: 6px; font-size: 14px; }
+        .no-selection { text-align: center; color: #95a5a6; padding: 40px; font-style: italic; }
+        .stats-container { background: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .zoom-controls { position: absolute; bottom: 20px; left: 20px; display: flex; gap: 10px; background: white; padding: 8px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .zoom-btn { width: 32px; height: 32px; border: none; background: #3498db; color: white; border-radius: 4px; cursor: pointer; font-size: 18px; }
+        .zoom-level { display: flex; align-items: center; padding: 0 10px; font-size: 14px; font-weight: 600; color: #2c3e50; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 2000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .help-button { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; border-radius: 50%; background: #3498db; color: white; border: none; font-size: 24px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="left-panel">
+            <div class="panel-header">
+                <h2>📦 Bibliothèque d'objets</h2>
+            </div>
+            <div class="category">
+                <div class="category-header" onclick="toggleCategory(this)">
+                    <span>🏢 Bâtiments</span>
+                    <span>▼</span>
+                </div>
+                <div class="category-items">
+                    <div class="draggable-item" draggable="true" data-type="building" data-subtype="shop">
+                        <div class="icon">🏬</div>
+                        <div class="label">Magasin</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="building" data-subtype="office">
+                        <div class="icon">🏢</div>
+                        <div class="label">Bureau</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="building" data-subtype="warehouse">
+                        <div class="icon">🏭</div>
+                        <div class="label">Entrepôt</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="building" data-subtype="restaurant">
+                        <div class="icon">🍽️</div>
+                        <div class="label">Restaurant</div>
+                    </div>
+                </div>
+            </div>
+            <div class="category">
+                <div class="category-header" onclick="toggleCategory(this)">
+                    <span>🚗 Transport</span>
+                    <span>▼</span>
+                </div>
+                <div class="category-items">
+                    <div class="draggable-item" draggable="true" data-type="transport" data-subtype="parking">
+                        <div class="icon">🅿️</div>
+                        <div class="label">Parking</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="transport" data-subtype="road">
+                        <div class="icon">🛣️</div>
+                        <div class="label">Route</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="transport" data-subtype="car">
+                        <div class="icon">🚗</div>
+                        <div class="label">Voiture</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="transport" data-subtype="bus">
+                        <div class="icon">🚌</div>
+                        <div class="label">Bus</div>
+                    </div>
+                </div>
+            </div>
+            <div class="category">
+                <div class="category-header" onclick="toggleCategory(this)">
+                    <span>🌳 Nature</span>
+                    <span>▼</span>
+                </div>
+                <div class="category-items">
+                    <div class="draggable-item" draggable="true" data-type="nature" data-subtype="tree">
+                        <div class="icon">🌳</div>
+                        <div class="label">Arbre</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="nature" data-subtype="park">
+                        <div class="icon">🌲</div>
+                        <div class="label">Parc</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="nature" data-subtype="garden">
+                        <div class="icon">🌻</div>
+                        <div class="label">Jardin</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="nature" data-subtype="water">
+                        <div class="icon">💧</div>
+                        <div class="label">Plan d'eau</div>
+                    </div>
+                </div>
+            </div>
+            <div class="category">
+                <div class="category-header" onclick="toggleCategory(this)">
+                    <span>🪑 Mobilier urbain</span>
+                    <span>▼</span>
+                </div>
+                <div class="category-items">
+                    <div class="draggable-item" draggable="true" data-type="furniture" data-subtype="bench">
+                        <div class="icon">🪑</div>
+                        <div class="label">Banc</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="furniture" data-subtype="lamp">
+                        <div class="icon">💡</div>
+                        <div class="label">Lampadaire</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="furniture" data-subtype="trash">
+                        <div class="icon">🗑️</div>
+                        <div class="label">Poubelle</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="furniture" data-subtype="sign">
+                        <div class="icon">🚏</div>
+                        <div class="label">Panneau</div>
+                    </div>
+                </div>
+            </div>
+            <div class="category">
+                <div class="category-header" onclick="toggleCategory(this)">
+                    <span>🚶 Zones</span>
+                    <span>▼</span>
+                </div>
+                <div class="category-items">
+                    <div class="draggable-item" draggable="true" data-type="zone" data-subtype="pedestrian">
+                        <div class="icon">🚶</div>
+                        <div class="label">Zone piétonne</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="zone" data-subtype="sidewalk">
+                        <div class="icon">🚸</div>
+                        <div class="label">Trottoir</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="zone" data-subtype="plaza">
+                        <div class="icon">🏛️</div>
+                        <div class="label">Place</div>
+                    </div>
+                    <div class="draggable-item" draggable="true" data-type="zone" data-subtype="loading">
+                        <div class="icon">📦</div>
+                        <div class="label">Zone livraison</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="center-area">
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="setMode('select')">👆 Sélection</button>
+                <button class="btn btn-secondary" onclick="setMode('pan')">🤚 Déplacer</button>
+                <button class="btn btn-danger" onclick="deleteSelected()">🗑️ Supprimer</button>
+                <button class="btn btn-primary" onclick="duplicateSelected()">📋 Dupliquer</button>
+                <button class="btn btn-secondary" onclick="bringToFront()">⬆️ Premier plan</button>
+                <button class="btn btn-secondary" onclick="sendToBack()">⬇️ Arrière-plan</button>
+                <button class="btn btn-secondary" onclick="showLayersModal()">📚 Calques</button>
+                <button class="btn btn-success" onclick="saveProject()">💾 Sauvegarder</button>
+                <button class="btn btn-primary" onclick="loadProject()">📁 Charger</button>
+                <button class="btn btn-success" onclick="exportImage()">🖼️ Exporter</button>
+                <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="gridToggle" checked onchange="toggleGrid()">
+                    <label for="gridToggle">Grille</label>
+                </div>
+            </div>
+            <div class="canvas-container">
+                <canvas id="canvas"></canvas>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" onclick="zoomIn()">+</button>
+                    <span class="zoom-level">100%</span>
+                    <button class="zoom-btn" onclick="zoomOut()">-</button>
+                    <button class="zoom-btn" onclick="resetZoom()">⟲</button>
+                </div>
+            </div>
+        </div>
+        <div class="right-panel">
+            <div class="panel-header">
+                <h2>⚙️ Propriétés</h2>
+            </div>
+            <div class="properties-content" id="propertiesPanel">
+                <div class="no-selection">
+                    Sélectionnez un objet pour modifier ses propriétés
+                </div>
+            </div>
+            <div class="stats-container">
+                <h3 style="margin-bottom: 15px; color: #2c3e50; font-size: 16px;">📊 Statistiques</h3>
+                <div class="stat-row">
+                    <span style="color: #7f8c8d;">Objets total:</span>
+                    <span style="color: #2c3e50; font-weight: 600;" id="totalObjects">0</span>
+                </div>
+                <div class="stat-row">
+                    <span style="color: #7f8c8d;">Surface bâtiments:</span>
+                    <span style="color: #2c3e50; font-weight: 600;" id="totalBuildingArea">0 m²</span>
+                </div>
+                <div class="stat-row">
+                    <span style="color: #7f8c8d;">Surface parkings:</span>
+                    <span style="color: #2c3e50; font-weight: 600;" id="totalParkingArea">0 m²</span>
+                </div>
+                <div class="stat-row">
+                    <span style="color: #7f8c8d;">Espaces verts:</span>
+                    <span style="color: #2c3e50; font-weight: 600;" id="totalGreenArea">0 m²</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="layersModal" class="modal">
+        <div class="modal-content">
+            <div style="margin-bottom: 20px;">
+                <h2 style="color: #2c3e50; font-size: 24px;">Gestion des calques</h2>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <button class="btn btn-primary" onclick="addLayer()" style="margin-bottom: 15px;">➕ Nouveau calque</button>
+                <ul style="list-style: none; padding: 0;" id="layersList"></ul>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="closeLayersModal()">Fermer</button>
+            </div>
+        </div>
+    </div>
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <h2 style="color: #2c3e50; margin-bottom: 20px;">📖 Guide d'utilisation</h2>
+            <h3 style="margin-bottom: 10px;">🎯 Comment utiliser PlannerPro</h3>
+            <ul style="line-height: 1.8;">
+                <li><strong>Glisser-déposer:</strong> Faites glisser les objets depuis la bibliothèque vers le canvas</li>
+                <li><strong>Sélectionner:</strong> Cliquez sur un objet pour le sélectionner</li>
+                <li><strong>Redimensionner:</strong> Utilisez les propriétés pour ajuster les dimensions</li>
+                <li><strong>Rotation:</strong> Utilisez le curseur de rotation dans les propriétés</li>
+                <li><strong>Supprimer:</strong> Sélectionnez et appuyez sur Suppr ou utilisez le bouton</li>
+                <li><strong>Zoom:</strong> Utilisez les boutons + et - ou la molette de la souris</li>
+                <li><strong>Calques:</strong> Organisez vos objets sur différents calques</li>
+                <li><strong>Sauvegarder:</strong> Exportez votre travail en JSON ou image PNG</li>
+            </ul>
+            <h3 style="margin-top: 20px; margin-bottom: 10px;">⌨️ Raccourcis clavier</h3>
+            <ul style="line-height: 1.8;">
+                <li><strong>Suppr:</strong> Supprimer l'objet sélectionné</li>
+                <li><strong>Ctrl+D:</strong> Dupliquer l'objet sélectionné</li>
+                <li><strong>Ctrl+S:</strong> Sauvegarder le projet</li>
+                <li><strong>Ctrl+O:</strong> Ouvrir un projet</li>
+                <li><strong>G:</strong> Afficher/masquer la grille</li>
+            </ul>
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="btn btn-primary" onclick="closeHelpModal()">Compris !</button>
+            </div>
+        </div>
+    </div>
+    <button class="help-button" onclick="showHelpModal()">?</button>
+    <script src="app.js"></script>
+</body>
+</html>
