@@ -17,6 +17,9 @@ let appState = {
     layers: [{ id: 1, name: 'Calque 1', visible: true, locked: false }],
     currentLayer: 1,
     isDragging: false,
+    resizing: false,
+    resizeHandle: null,
+    originalDimensions: null,
     dragStart: { x: 0, y: 0 },
     canvasOffset: { x: 0, y: 0 },
     showGrid: true
@@ -36,6 +39,10 @@ class PlanObject {
         this.subtype = subtype;
         this.width = this.getDefaultWidth();
         this.height = this.getDefaultHeight();
+        this.widthLeft = this.width / 2;
+        this.widthRight = this.width / 2;
+        this.heightTop = this.height / 2;
+        this.heightBottom = this.height / 2;
         this.rotation = 0;
         this.color = this.getDefaultColor();
         this.name = this.getDefaultName();
@@ -45,6 +52,10 @@ class PlanObject {
         this.zIndex = Date.now();
         this.realWidth = this.width * config.scale;
         this.realHeight = this.height * config.scale;
+        this.realWidthLeft = this.widthLeft * config.scale;
+        this.realWidthRight = this.widthRight * config.scale;
+        this.realHeightTop = this.heightTop * config.scale;
+        this.realHeightBottom = this.heightBottom * config.scale;
     }
 
     getDefaultWidth() {
@@ -80,7 +91,10 @@ class PlanObject {
         if (!this.visible) return;
         ctx.save();
         ctx.scale(config.zoom, config.zoom);
-        ctx.translate(this.x + this.width/2, this.y + this.height/2);
+        
+        // L'objet est positionné par son coin supérieur gauche (x, y)
+        // On translate au point de référence pour le dessin
+        ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation * Math.PI / 180);
         
         ctx.fillStyle = this.color;
@@ -89,32 +103,129 @@ class PlanObject {
         
         if (this.type === 'nature' && this.subtype === 'tree') {
             ctx.beginPath();
-            ctx.arc(0, 0, this.width/2, 0, 2 * Math.PI);
+            ctx.arc(0, 0, Math.max(this.widthLeft, this.widthRight), 0, 2 * Math.PI);
             ctx.fill();
             ctx.stroke();
         } else {
-            ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
-            ctx.strokeRect(-this.width/2, -this.height/2, this.width, this.height);
+            // Interpréter les dimensions comme :
+            // widthLeft = largeur du haut du trapèze
+            // widthRight = largeur du bas du trapèze
+            // heightTop = longueur du côté gauche
+            // heightBottom = longueur du côté droit
+            
+            ctx.beginPath();
+            // Trapèze avec largeur et hauteur variables
+            ctx.moveTo(0, 0); // Coin supérieur gauche
+            ctx.lineTo(this.widthLeft, 0); // Coin supérieur droit (largeur du haut)
+            ctx.lineTo(this.widthRight, this.heightBottom); // Coin inférieur droit (largeur du bas, longueur droite)
+            ctx.lineTo(0, this.heightTop); // Coin inférieur gauche (longueur gauche)
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
         }
         
         ctx.fillStyle = this.getTextColor();
         ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(this.name, 0, 0);
+        
+        // Calculer le centre géométrique du quadrilatère
+        const centerX = (0 + this.widthLeft + this.widthRight + 0) / 4;
+        const centerY = (0 + 0 + this.heightBottom + this.heightTop) / 4;
+        
+        ctx.fillText(this.name, centerX, centerY);
         
         if (this.selected) {
             ctx.fillStyle = '#2c3e50';
             ctx.font = '10px Arial';
-            ctx.fillText(`${this.realWidth.toFixed(1)}m × ${this.realHeight.toFixed(1)}m`, 0, this.height/2 + 15);
+            const totalWidth = this.realWidthLeft + this.realWidthRight;
+            const totalHeight = this.realHeightTop + this.realHeightBottom;
+            ctx.fillText(`${totalWidth.toFixed(1)}m × ${totalHeight.toFixed(1)}m`, 0, Math.max(this.heightBottom, this.heightTop) + 15);
             
             if (this.type === 'building' || this.type === 'zone' || (this.type === 'transport' && this.subtype === 'parking')) {
-                const area = (this.realWidth * this.realHeight).toFixed(1);
-                ctx.fillText(`Surface: ${area} m²`, 0, this.height/2 + 30);
+                const area = this.getArea().toFixed(1);
+                ctx.fillText(`Surface: ${area} m²`, 0, Math.max(this.heightBottom, this.heightTop) + 30);
             }
+            
+            // Dessiner les poignées de redimensionnement
+            this.drawResizeHandles(ctx);
         }
         
         ctx.restore();
+    }
+
+    drawResizeHandles(ctx) {
+        // Dessiner les poignées de redimensionnement
+        const handleSize = 8 / config.zoom; // Taille fixe indépendante du zoom
+        const vertices = this.getVertices();
+        
+        ctx.fillStyle = '#3498db';
+        ctx.strokeStyle = '#2980b9';
+        ctx.lineWidth = 1 / config.zoom;
+        
+        // Dessiner des poignées sur chaque coin
+        vertices.forEach(vertex => {
+            ctx.fillRect(vertex.x - handleSize/2, vertex.y - handleSize/2, handleSize, handleSize);
+            ctx.strokeRect(vertex.x - handleSize/2, vertex.y - handleSize/2, handleSize, handleSize);
+        });
+        
+        // Dessiner des poignées au milieu de chaque côté pour redimensionner
+        const midHandles = [
+            { x: this.widthLeft / 2, y: 0, type: 'top' }, // Milieu haut
+            { x: this.widthRight, y: this.heightBottom / 2, type: 'right' }, // Milieu droit
+            { x: this.widthRight / 2, y: Math.max(this.heightTop, this.heightBottom), type: 'bottom' }, // Milieu bas
+            { x: 0, y: this.heightTop / 2, type: 'left' } // Milieu gauche
+        ];
+        
+        ctx.fillStyle = '#e74c3c';
+        midHandles.forEach(handle => {
+            ctx.fillRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize);
+            ctx.strokeRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize);
+        });
+    }
+
+    getVertices() {
+        return [
+            {x: 0, y: 0, type: 'top-left'},
+            {x: this.widthLeft, y: 0, type: 'top-right'},
+            {x: this.widthRight, y: this.heightBottom, type: 'bottom-right'},
+            {x: 0, y: this.heightTop, type: 'bottom-left'}
+        ];
+    }
+
+    getResizeHandle(x, y) {
+        if (!this.selected) return null;
+        
+        const localX = x - this.x;
+        const localY = y - this.y;
+        const handleSize = 8 / config.zoom;
+        const tolerance = handleSize;
+        
+        // Vérifier les poignées de coin
+        const vertices = this.getVertices();
+        for (let vertex of vertices) {
+            if (Math.abs(localX - vertex.x) <= tolerance && 
+                Math.abs(localY - vertex.y) <= tolerance) {
+                return vertex.type;
+            }
+        }
+        
+        // Vérifier les poignées de côté
+        const midHandles = [
+            { x: this.widthLeft / 2, y: 0, type: 'top' },
+            { x: this.widthRight, y: this.heightBottom / 2, type: 'right' },
+            { x: this.widthRight / 2, y: Math.max(this.heightTop, this.heightBottom), type: 'bottom' },
+            { x: 0, y: this.heightTop / 2, type: 'left' }
+        ];
+        
+        for (let handle of midHandles) {
+            if (Math.abs(localX - handle.x) <= tolerance && 
+                Math.abs(localY - handle.y) <= tolerance) {
+                return handle.type;
+            }
+        }
+        
+        return null;
     }
 
     getTextColor() {
@@ -127,17 +238,37 @@ class PlanObject {
     }
 
     isPointInside(x, y) {
-        const cos = Math.cos(-this.rotation * Math.PI / 180);
-        const sin = Math.sin(-this.rotation * Math.PI / 180);
-        const dx = x - (this.x + this.width/2);
-        const dy = y - (this.y + this.height/2);
-        const rotX = dx * cos - dy * sin;
-        const rotY = dx * sin + dy * cos;
-        return Math.abs(rotX) <= this.width/2 && Math.abs(rotY) <= this.height/2;
+        // Transformer le point en coordonnées locales
+        const localX = x - this.x;
+        const localY = y - this.y;
+        
+        // Pour un quadrilatère irrégulier, on doit vérifier si le point est à l'intérieur
+        // en utilisant l'algorithme du point dans un polygone
+        const vertices = [
+            {x: 0, y: 0},
+            {x: this.widthLeft, y: 0},
+            {x: this.widthRight, y: this.heightBottom},
+            {x: 0, y: this.heightTop}
+        ];
+        
+        let inside = false;
+        for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+            const xi = vertices[i].x, yi = vertices[i].y;
+            const xj = vertices[j].x, yj = vertices[j].y;
+            
+            const intersect = ((yi > localY) != (yj > localY))
+                && (localX < (xj - xi) * (localY - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        
+        return inside;
     }
 
     getArea() {
-        return this.realWidth * this.realHeight;
+        // Formule pour l'aire d'un trapèze : ((base1 + base2) / 2) × hauteur
+        const totalWidth = this.realWidthLeft + this.realWidthRight;
+        const totalHeight = this.realHeightTop + this.realHeightBottom;
+        return totalWidth * totalHeight;
     }
 }
 
@@ -175,10 +306,39 @@ canvas.addEventListener('mousedown', (e) => {
     const y = (e.clientY - rect.top) / config.zoom;
     
     if (appState.mode === 'select') {
-        selectObjectAt(x, y);
+        // Vérifier d'abord si on clique sur une poignée de redimensionnement
+        let resizeHandle = null;
         if (appState.selectedObject) {
-            appState.isDragging = true;
-            appState.dragStart = { x: x - appState.selectedObject.x, y: y - appState.selectedObject.y };
+            resizeHandle = appState.selectedObject.getResizeHandle(x, y);
+        }
+        
+        if (resizeHandle) {
+            // Mode redimensionnement
+            appState.resizing = true;
+            appState.resizeHandle = resizeHandle;
+            appState.dragStart = { x, y };
+            appState.originalDimensions = {
+                widthLeft: appState.selectedObject.widthLeft,
+                widthRight: appState.selectedObject.widthRight,
+                heightTop: appState.selectedObject.heightTop,
+                heightBottom: appState.selectedObject.heightBottom,
+                x: appState.selectedObject.x,
+                y: appState.selectedObject.y
+            };
+        } else {
+            // Vérifier si on clique sur l'objet déjà sélectionné
+            const clickedOnSelected = appState.selectedObject && 
+                                     appState.selectedObject.isPointInside(x, y);
+            
+            if (!clickedOnSelected) {
+                // Seulement changer la sélection si on ne clique pas sur l'objet sélectionné
+                selectObjectAt(x, y);
+            }
+            
+            if (appState.selectedObject) {
+                appState.isDragging = true;
+                appState.dragStart = { x: x - appState.selectedObject.x, y: y - appState.selectedObject.y };
+            }
         }
     } else if (appState.mode === 'pan') {
         appState.isDragging = true;
@@ -186,13 +346,116 @@ canvas.addEventListener('mousedown', (e) => {
     }
 });
 
-canvas.addEventListener('mousemove', (e) => {
-    if (!appState.isDragging) return;
+// Gestion du double-clic pour sélectionner l'objet en dessous
+canvas.addEventListener('dblclick', (e) => {
     const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / config.zoom;
+    const y = (e.clientY - rect.top) / config.zoom;
     
-    if (appState.mode === 'select' && appState.selectedObject) {
-        const x = (e.clientX - rect.left) / config.zoom;
-        const y = (e.clientY - rect.top) / config.zoom;
+    if (appState.mode === 'select' && appState.selectedObject && 
+        appState.selectedObject.isPointInside(x, y)) {
+        // Forcer la sélection de l'objet suivant en dessous
+        selectObjectAt(x, y);
+        updatePropertiesPanel();
+        render();
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / config.zoom;
+    const y = (e.clientY - rect.top) / config.zoom;
+    
+    // Gérer le curseur selon le contexte
+    if (!appState.resizing && !appState.isDragging && appState.selectedObject) {
+        const resizeHandle = appState.selectedObject.getResizeHandle(x, y);
+        if (resizeHandle) {
+            switch (resizeHandle) {
+                case 'top-left':
+                case 'bottom-right':
+                    canvas.style.cursor = 'nw-resize';
+                    break;
+                case 'top-right':
+                case 'bottom-left':
+                    canvas.style.cursor = 'ne-resize';
+                    break;
+                case 'top':
+                case 'bottom':
+                    canvas.style.cursor = 'ns-resize';
+                    break;
+                case 'left':
+                case 'right':
+                    canvas.style.cursor = 'ew-resize';
+                    break;
+            }
+        } else if (appState.selectedObject.isPointInside(x, y)) {
+            canvas.style.cursor = 'move';
+        } else {
+            canvas.style.cursor = 'default';
+        }
+    } else if (!appState.resizing && !appState.isDragging) {
+        canvas.style.cursor = 'default';
+    }
+    
+    if (appState.resizing && appState.selectedObject) {
+        // Mode redimensionnement
+        const deltaX = x - appState.dragStart.x;
+        const deltaY = y - appState.dragStart.y;
+        const obj = appState.selectedObject;
+        const orig = appState.originalDimensions;
+        
+        switch (appState.resizeHandle) {
+            case 'top-left':
+                obj.widthLeft = Math.max(10, orig.widthLeft - deltaX);
+                obj.heightTop = Math.max(10, orig.heightTop - deltaY);
+                obj.x = orig.x + deltaX;
+                obj.y = orig.y + deltaY;
+                break;
+            case 'top-right':
+                obj.widthLeft = Math.max(10, orig.widthLeft + deltaX);
+                obj.heightTop = Math.max(10, orig.heightTop - deltaY);
+                obj.y = orig.y + deltaY;
+                break;
+            case 'bottom-right':
+                obj.widthRight = Math.max(10, orig.widthRight + deltaX);
+                obj.heightBottom = Math.max(10, orig.heightBottom + deltaY);
+                break;
+            case 'bottom-left':
+                obj.widthLeft = Math.max(10, orig.widthLeft - deltaX);
+                obj.heightBottom = Math.max(10, orig.heightBottom + deltaY);
+                obj.x = orig.x + deltaX;
+                break;
+            case 'top':
+                obj.heightTop = Math.max(10, orig.heightTop - deltaY);
+                obj.y = orig.y + deltaY;
+                break;
+            case 'bottom':
+                obj.heightBottom = Math.max(10, orig.heightBottom + deltaY);
+                break;
+            case 'left':
+                obj.widthLeft = Math.max(10, orig.widthLeft - deltaX);
+                obj.x = orig.x + deltaX;
+                break;
+            case 'right':
+                obj.widthRight = Math.max(10, orig.widthRight + deltaX);
+                break;
+        }
+        
+        // Mettre à jour les dimensions réelles
+        obj.width = obj.widthLeft + obj.widthRight;
+        obj.height = obj.heightTop + obj.heightBottom;
+        obj.realWidth = obj.width * config.scale;
+        obj.realHeight = obj.height * config.scale;
+        obj.realWidthLeft = obj.widthLeft * config.scale;
+        obj.realWidthRight = obj.widthRight * config.scale;
+        obj.realHeightTop = obj.heightTop * config.scale;
+        obj.realHeightBottom = obj.heightBottom * config.scale;
+        
+        updatePropertiesPanel();
+        render();
+        
+    } else if (appState.isDragging && appState.mode === 'select' && appState.selectedObject) {
+        // Mode déplacement
         appState.selectedObject.x = x - appState.dragStart.x;
         appState.selectedObject.y = y - appState.dragStart.y;
         
@@ -213,7 +476,12 @@ canvas.addEventListener('mousemove', (e) => {
     }
 });
 
-canvas.addEventListener('mouseup', () => appState.isDragging = false);
+canvas.addEventListener('mouseup', () => {
+    appState.isDragging = false;
+    appState.resizing = false;
+    appState.resizeHandle = null;
+    appState.originalDimensions = null;
+});
 
 canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -308,11 +576,19 @@ function duplicateSelected() {
     
     copy.width = original.width;
     copy.height = original.height;
+    copy.widthLeft = original.widthLeft;
+    copy.widthRight = original.widthRight;
+    copy.heightTop = original.heightTop;
+    copy.heightBottom = original.heightBottom;
     copy.rotation = original.rotation;
     copy.color = original.color;
     copy.name = original.name + ' (copie)';
     copy.realWidth = original.realWidth;
     copy.realHeight = original.realHeight;
+    copy.realWidthLeft = original.realWidthLeft;
+    copy.realWidthRight = original.realWidthRight;
+    copy.realHeightTop = original.realHeightTop;
+    copy.realHeightBottom = original.realHeightBottom;
     copy.layer = original.layer;
     
     appState.objects.push(copy);
@@ -345,12 +621,20 @@ function updatePropertiesPanel() {
         <div class="property-group">
             <h3>Dimensions (mètres)</h3>
             <div class="property-row">
-                <label class="property-label">Largeur:</label>
-                <input type="number" class="property-input" value="${obj.realWidth.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('width', this.value)">
+                <label class="property-label">Largeur haut:</label>
+                <input type="number" class="property-input" value="${obj.realWidthLeft.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('widthLeft', this.value)">
             </div>
             <div class="property-row">
-                <label class="property-label">Hauteur:</label>
-                <input type="number" class="property-input" value="${obj.realHeight.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('height', this.value)">
+                <label class="property-label">Largeur bas:</label>
+                <input type="number" class="property-input" value="${obj.realWidthRight.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('widthRight', this.value)">
+            </div>
+            <div class="property-row">
+                <label class="property-label">Longueur gauche:</label>
+                <input type="number" class="property-input" value="${obj.realHeightTop.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('heightTop', this.value)">
+            </div>
+            <div class="property-row">
+                <label class="property-label">Longueur droite:</label>
+                <input type="number" class="property-input" value="${obj.realHeightBottom.toFixed(1)}" step="0.1" min="0.1" onchange="updateObjectDimension('heightBottom', this.value)">
             </div>
         </div>
         <div class="property-group">
@@ -361,8 +645,8 @@ function updatePropertiesPanel() {
             </div>
             <div class="property-row">
                 <label class="property-label">Rotation:</label>
-                <input type="range" class="property-input" value="${obj.rotation}" min="0" max="360" onchange="updateObjectProperty('rotation', parseFloat(this.value))">
-                <span style="margin-left: 10px;">${obj.rotation}°</span>
+                <input type="range" class="property-input" value="${obj.rotation}" min="0" max="360" onchange="updateObjectProperty('rotation', parseFloat(this.value))" style="flex: 1;">
+                <span style="margin-left: 10px; min-width: 40px; text-align: right; font-weight: 500;">${obj.rotation}°</span>
             </div>
         </div>
     `;
@@ -378,12 +662,49 @@ function updateObjectProperty(property, value) {
 function updateObjectDimension(dimension, value) {
     if (!appState.selectedObject) return;
     const realValue = parseFloat(value);
-    if (dimension === 'width') {
-        appState.selectedObject.realWidth = realValue;
-        appState.selectedObject.width = realValue / config.scale;
-    } else {
-        appState.selectedObject.realHeight = realValue;
-        appState.selectedObject.height = realValue / config.scale;
+    const obj = appState.selectedObject;
+    
+    switch(dimension) {
+        case 'widthLeft':
+            obj.realWidthLeft = realValue;
+            obj.widthLeft = realValue / config.scale;
+            obj.width = obj.widthLeft + obj.widthRight;
+            obj.realWidth = obj.width * config.scale;
+            break;
+        case 'widthRight':
+            obj.realWidthRight = realValue;
+            obj.widthRight = realValue / config.scale;
+            obj.width = obj.widthLeft + obj.widthRight;
+            obj.realWidth = obj.width * config.scale;
+            break;
+        case 'heightTop':
+            obj.realHeightTop = realValue;
+            obj.heightTop = realValue / config.scale;
+            obj.height = obj.heightTop + obj.heightBottom;
+            obj.realHeight = obj.height * config.scale;
+            break;
+        case 'heightBottom':
+            obj.realHeightBottom = realValue;
+            obj.heightBottom = realValue / config.scale;
+            obj.height = obj.heightTop + obj.heightBottom;
+            obj.realHeight = obj.height * config.scale;
+            break;
+        case 'width':
+            obj.realWidth = realValue;
+            obj.width = realValue / config.scale;
+            obj.widthLeft = obj.width / 2;
+            obj.widthRight = obj.width / 2;
+            obj.realWidthLeft = obj.widthLeft * config.scale;
+            obj.realWidthRight = obj.widthRight * config.scale;
+            break;
+        case 'height':
+            obj.realHeight = realValue;
+            obj.height = realValue / config.scale;
+            obj.heightTop = obj.height / 2;
+            obj.heightBottom = obj.height / 2;
+            obj.realHeightTop = obj.heightTop * config.scale;
+            obj.realHeightBottom = obj.heightBottom * config.scale;
+            break;
     }
     updatePropertiesPanel();
     updateStats();
@@ -546,7 +867,19 @@ function loadProject() {
                 Object.assign(config, projectData.config);
                 appState.objects = projectData.objects.map(objData => {
                     const obj = Object.create(PlanObject.prototype);
-                    return Object.assign(obj, objData);
+                    Object.assign(obj, objData);
+                    // Assurer la compatibilité avec les anciens fichiers
+                    if (obj.widthLeft === undefined) {
+                        obj.widthLeft = obj.width / 2;
+                        obj.widthRight = obj.width / 2;
+                        obj.heightTop = obj.height / 2;
+                        obj.heightBottom = obj.height / 2;
+                        obj.realWidthLeft = obj.widthLeft * config.scale;
+                        obj.realWidthRight = obj.widthRight * config.scale;
+                        obj.realHeightTop = obj.heightTop * config.scale;
+                        obj.realHeightBottom = obj.heightBottom * config.scale;
+                    }
+                    return obj;
                 });
                 appState.layers = projectData.layers;
                 appState.currentLayer = projectData.currentLayer;

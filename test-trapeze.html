@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Trapèze</title>
+    <style>
+        body { margin: 20px; font-family: Arial; }
+        canvas { border: 1px solid #000; margin: 10px 0; }
+        .controls { margin: 10px 0; }
+        input { width: 60px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h2>Test de dessin trapézoïdal</h2>
+    <canvas id="canvas" width="600" height="400"></canvas>
+    <div class="controls">
+        <label>Largeur gauche: <input type="number" id="wl" value="50" onchange="draw()"></label>
+        <label>Largeur droite: <input type="number" id="wr" value="100" onchange="draw()"></label><br>
+        <label>Longueur haut: <input type="number" id="ht" value="40" onchange="draw()"></label>
+        <label>Longueur bas: <input type="number" id="hb" value="80" onchange="draw()"></label>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        function draw() {
+            const wl = parseFloat(document.getElementById('wl').value);
+            const wr = parseFloat(document.getElementById('wr').value);
+            const ht = parseFloat(document.getElementById('ht').value);
+            const hb = parseFloat(document.getElementById('hb').value);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Dessin comme dans l'app
+            ctx.save();
+            ctx.translate(300, 200);
+            
+            ctx.fillStyle = '#8B4513';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            ctx.moveTo(-wl, -ht);
+            ctx.lineTo(wr, -ht);
+            ctx.lineTo(wr, hb);
+            ctx.lineTo(-wl, hb);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // Afficher les dimensions
+            ctx.fillStyle = '#000';
+            ctx.font = '12px Arial';
+            ctx.fillText(`Gauche: ${wl}`, -wl - 50, 0);
+            ctx.fillText(`Droite: ${wr}`, wr + 10, 0);
+            ctx.fillText(`Haut: ${ht}`, 0, -ht - 10);
+            ctx.fillText(`Bas: ${hb}`, 0, hb + 20);
+            
+            ctx.restore();
+        }
+        
+        draw();
+    </script>
+</body>
+</html>
